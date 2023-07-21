@@ -18,6 +18,7 @@ import tempfile
 import subprocess
 import re
 import paramiko
+from distutils.dir_util import copy_tree
 from paramiko import SSHClient
 from scp import SCPClient
 from tqdm import tqdm
@@ -253,7 +254,6 @@ def create_dir(path):
 def open_target_app(device, name_or_bundleid):
     print('Start the target app {}'.format(name_or_bundleid))
 
-    pid = ''
     session = None
     display_name = ''
     bundle_identifier = ''
@@ -275,6 +275,15 @@ def open_target_app(device, name_or_bundleid):
 
     return session, display_name, bundle_identifier
 
+def attach_target_execute(device, pid):
+    print('Start attach_target_execute {}'.format(pid))
+    try:
+        session = device.attach(pid)
+    except Exception as e:
+        print(e) 
+
+    return session
+
 
 def start_dump(session, ipa_name):
     print('Dumping {} to {}'.format(display_name, TEMP_DIR))
@@ -288,6 +297,19 @@ def start_dump(session, ipa_name):
     if session:
         session.detach()
 
+def start_dump_execute(session, pid):
+    print('Dumping {} to {}'.format(pid, TEMP_DIR))
+
+    script = load_js_file(session, DUMP_JS)
+    script.post('dumpExecute')
+    finished.wait()
+
+
+    copy_tree(PAYLOAD_PATH, "./result/")
+    print('Dump success, result folder => {}'.format('./result/'))
+    if session:
+        session.detach()
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='frida-ios-dump (by AloneMonkey v2.0)')
@@ -295,6 +317,7 @@ if __name__ == '__main__':
     parser.add_argument('-o', '--output', dest='output_ipa', help='Specify name of the decrypted IPA')
     parser.add_argument('-H', '--host', dest='ssh_host', help='Specify SSH hostname')
     parser.add_argument('-p', '--port', dest='ssh_port', help='Specify SSH port')
+    parser.add_argument('-i', '--pid', dest='target_pid', help='Specify target pid')
     parser.add_argument('-u', '--user', dest='ssh_user', help='Specify SSH username')
     parser.add_argument('-P', '--password', dest='ssh_password', help='Specify SSH password')
     parser.add_argument('-K', '--key_filename', dest='ssh_key_filename', help='Specify SSH private key file path')
@@ -304,6 +327,8 @@ if __name__ == '__main__':
 
     exit_code = 0
     ssh = None
+    TargetPid = None
+    session = None
 
     if not len(sys.argv[1:]):
         parser.print_help()
@@ -327,6 +352,8 @@ if __name__ == '__main__':
             Password = args.ssh_password
         if args.ssh_key_filename:
             KeyFileName = args.ssh_key_filename
+        if args.target_pid:
+            TargetPid = int(args.target_pid)
 
         try:
             ssh = paramiko.SSHClient()
@@ -334,12 +361,19 @@ if __name__ == '__main__':
             ssh.connect(Host, port=Port, username=User, password=Password, key_filename=KeyFileName)
 
             create_dir(PAYLOAD_PATH)
-            (session, display_name, bundle_identifier) = open_target_app(device, name_or_bundleid)
-            if output_ipa is None:
-                output_ipa = display_name
-            output_ipa = re.sub('\.ipa$', '', output_ipa)
+            if TargetPid:
+                session = attach_target_execute(device, TargetPid)
+            else:
+                (session, display_name, bundle_identifier) = open_target_app(device, name_or_bundleid)
+          
             if session:
-                start_dump(session, output_ipa)
+                if TargetPid:
+                    start_dump_execute(session, TargetPid)
+                else:
+                    if output_ipa is None:
+                        output_ipa = display_name
+                    output_ipa = re.sub('\.ipa$', '', output_ipa)
+                    start_dump(session, output_ipa)
         except paramiko.ssh_exception.NoValidConnectionsError as e:
             print(e)
             print('Try specifying -H/--hostname and/or -p/--port')

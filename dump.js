@@ -158,7 +158,7 @@ function getAllAppModules() {
     modules = new Array();
     var tmpmods = Process.enumerateModulesSync();
     for (var i = 0; i < tmpmods.length; i++) {
-        if (tmpmods[i].path.indexOf(".app") != -1) {
+        if (tmpmods[i].path.indexOf("/var/containers/Bundle/Application") != -1) {
             modules.push(tmpmods[i]);
         }
     }
